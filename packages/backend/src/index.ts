@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import dotenv from 'dotenv';
 import uploadRoutes from './api/upload.routes';
 import reconcileRoutes from './api/reconcile.routes';
+import remittanceRoutes from './api/remittance.routes';
 
 // Load environment variables
 dotenv.config();
@@ -25,6 +26,7 @@ app.use(express.urlencoded({ extended: true }));
 // API Routes
 app.use('/api/upload', uploadRoutes);
 app.use('/api/reconcile', reconcileRoutes);
+app.use('/api/remittances', remittanceRoutes);
 
 // Health check endpoint
 app.get('/health', (_req, res) => {
@@ -49,6 +51,12 @@ app.get('/', (_req, res) => {
       reconcile: {
         direct: 'POST /api/reconcile/direct',
         stats: 'GET /api/reconcile/stats'
+      },
+      remittances: {
+        upload: 'POST /api/remittances/upload',
+        match: 'POST /api/remittances/match',
+        list: 'GET /api/remittances',
+        get: 'GET /api/remittances/:id'
       }
     }
   });
