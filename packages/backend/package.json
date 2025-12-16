@@ -12,6 +12,7 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:matching": "tsx src/scripts/test-matching.ts",
+    "test:matching-demo": "tsx src/scripts/test-matching-standalone.ts",
     "lint": "eslint src --ext .ts",
     "clean": "rm -rf dist"
   },
