@@ -17,9 +17,11 @@ import {
 import { fuzzyNameMatch } from '../utils/matching.utils';
 
 // Mock remittance PDF text (as would be extracted from actual PDFs)
+// Note: fileName contains payment code that will be extracted
 const MOCK_REMITTANCES = [
   {
     name: 'Medicare EasyClaim Remittance',
+    fileName: 'Medicare_MCARE2024012001_Remittance.pdf', // Payment code in filename
     text: `
 Medicare Australia
 Remittance Advice
@@ -38,6 +40,7 @@ Payment will be deposited to your nominated account.
   },
   {
     name: 'DVA Payment Advice',
+    fileName: 'DVA_Payment_DVA20240122.pdf', // Payment code in filename
     text: `
 Department of Veterans' Affairs
 Payment Notification
@@ -56,6 +59,7 @@ Thank you for your service.
   },
   {
     name: 'Private Health (No Payment Code)',
+    fileName: 'BUPA_Health_20240125.pdf', // No recognizable payment code
     text: `
 BUPA Health Insurance
 Provider Payment Summary
@@ -116,10 +120,11 @@ console.log('='.repeat(80));
 const parsedRemittances = MOCK_REMITTANCES.map((remittance, index) => {
   console.log(`\n${'─'.repeat(80)}`);
   console.log(`📄 Remittance ${index + 1}: ${remittance.name}`);
+  console.log(`   File: ${remittance.fileName}`);
   console.log(`${'─'.repeat(80)}`);
 
-  // Parse
-  const parsed = parseRemittanceText(remittance.text);
+  // Parse (with filename for payment code extraction)
+  const parsed = parseRemittanceText(remittance.text, remittance.fileName);
 
   // Validate
   const validation = validateParsedRemittance(parsed);

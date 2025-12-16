@@ -145,9 +145,9 @@ async function processRemittanceFile(
     `   📝 Extracted ${extraction.text.length} characters (${extraction.metadata.pageCount} page(s))`
   );
 
-  // Step 2: Parse remittance text
+  // Step 2: Parse remittance text (with filename for payment code extraction)
   console.log(`   🔍 Parsing remittance data...`);
-  const parsed = parseRemittanceText(extraction.text);
+  const parsed = parseRemittanceText(extraction.text, fileName);
 
   console.log(
     `   📊 Parsing confidence: ${parsed.parsing_confidence}% (${parsed.line_items.length} line items)`

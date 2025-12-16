@@ -37,9 +37,10 @@ export interface ParsedRemittance {
  * Parse remittance text and extract structured data
  *
  * @param text Extracted PDF text
+ * @param fileName Optional filename to extract payment code from
  * @returns Parsed remittance data
  */
-export function parseRemittanceText(text: string): ParsedRemittance {
+export function parseRemittanceText(text: string, fileName?: string): ParsedRemittance {
   const result: ParsedRemittance = {
     payer_name: null,
     remittance_date: null,
@@ -52,7 +53,14 @@ export function parseRemittanceText(text: string): ParsedRemittance {
 
   // Extract components
   result.payer_name = extractPayerName(text);
-  result.payment_code = extractPaymentCode(text);
+
+  // Extract payment code from BOTH text and filename
+  const textPaymentCode = extractPaymentCode(text);
+  const fileNamePaymentCode = fileName ? extractPaymentCodeFromFileName(fileName) : null;
+
+  // Prioritize filename payment code if both exist (filename is often more reliable)
+  result.payment_code = fileNamePaymentCode || textPaymentCode;
+
   result.remittance_date = extractRemittanceDate(text);
   result.total_amount = extractTotalAmount(text);
   result.line_items = extractLineItems(text);
@@ -164,6 +172,65 @@ export function extractPaymentCode(text: string): string | null {
     const match = text.match(pattern);
     if (match && match[1]) {
       return match[1].trim();
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Extract payment code from filename
+ *
+ * CRITICAL for matching when payment code is in filename instead of PDF text.
+ *
+ * Examples:
+ * - "Medicare_MCARE2024012001.pdf" → "MCARE2024012001"
+ * - "DVA_Payment_DVA20240122.pdf" → "DVA20240122"
+ * - "Remittance_PAY-789456_20240120.pdf" → "PAY-789456"
+ * - "BATCH123456_Medicare.pdf" → "BATCH123456"
+ *
+ * @param fileName Original filename
+ * @returns Payment code or null
+ */
+export function extractPaymentCodeFromFileName(fileName: string): string | null {
+  // Remove file extension
+  const nameWithoutExt = fileName.replace(/\.(pdf|PDF)$/, '');
+
+  // Try the same payment code patterns as text extraction
+  const standalonePatterns = [
+    /\b(MCARE\d{10,})\b/i, // Medicare: MCARE2024012001
+    /\b(DVA\d{8,})\b/i, // DVA: DVA20240120
+    /\b(PAY-\d{6,})\b/i, // Generic: PAY-789456
+    /\b(TXN\d{9,})\b/i, // Transaction: TXN123456789
+    /\b(BATCH\d{6,})\b/i, // Batch: BATCH789456
+    /\b(REM-\d{4}-\d{3,})\b/i, // Remittance: REM-2024-001
+    /\b(REF\d{8,})\b/i, // Reference: REF12345678
+    /\b(EFT\d{8,})\b/i, // EFT: EFT12345678
+  ];
+
+  for (const pattern of standalonePatterns) {
+    const match = nameWithoutExt.match(pattern);
+    if (match && match[1]) {
+      const code = match[1].trim();
+      // Validate: Must be at least 6 characters
+      if (code.length >= 6) {
+        console.log(`   📎 Payment code extracted from filename: "${code}"`);
+        return code;
+      }
+    }
+  }
+
+  // Generic alphanumeric code extraction (between underscores or hyphens)
+  // Example: "Medicare_ABC123XYZ_Remittance.pdf" → "ABC123XYZ"
+  const genericPattern = /[_\-]([A-Z0-9]{8,})[_\-]/i;
+  const genericMatch = nameWithoutExt.match(genericPattern);
+
+  if (genericMatch && genericMatch[1]) {
+    const code = genericMatch[1].trim();
+    // Must be mixed alphanumeric (not all letters or all numbers)
+    if (/[A-Z]/.test(code) && /\d/.test(code) && code.length >= 8) {
+      console.log(`   📎 Generic payment code extracted from filename: "${code}"`);
+      return code;
     }
   }
 
