@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import uploadRoutes from './api/upload.routes';
+import reconcileRoutes from './api/reconcile.routes';
 
 // Load environment variables
 dotenv.config();
@@ -23,6 +24,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // API Routes
 app.use('/api/upload', uploadRoutes);
+app.use('/api/reconcile', reconcileRoutes);
 
 // Health check endpoint
 app.get('/health', (_req, res) => {
@@ -43,6 +45,10 @@ app.get('/', (_req, res) => {
       upload: {
         invoices: 'POST /api/upload/invoices',
         payments: 'POST /api/upload/payments'
+      },
+      reconcile: {
+        direct: 'POST /api/reconcile/direct',
+        stats: 'GET /api/reconcile/stats'
       }
     }
   });
