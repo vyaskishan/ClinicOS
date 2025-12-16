@@ -1,4 +1,4 @@
-import { Pool, PoolClient, PoolConfig, QueryResult } from 'pg';
+import { Pool, PoolClient, PoolConfig, QueryResult, QueryResultRow } from 'pg';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -59,7 +59,7 @@ pool.on('error', (err) => {
  * // BAD - String concatenation (VULNERABLE TO SQL INJECTION)
  * await query(`SELECT * FROM invoices WHERE invoice_number = '${userInput}'`);
  */
-export const query = async <T = any>(
+export const query = async <T extends QueryResultRow = any>(
   text: string,
   params?: any[]
 ): Promise<QueryResult<T>> => {
@@ -157,7 +157,7 @@ export const transaction = async <T>(
  *   patient_name: 'John Smith'
  * });
  */
-export const insert = async <T = any>(
+export const insert = async <T extends QueryResultRow = any>(
   table: string,
   data: Record<string, any>
 ): Promise<T> => {
@@ -190,7 +190,7 @@ export const insert = async <T = any>(
  *   { id: invoiceId }
  * );
  */
-export const update = async <T = any>(
+export const update = async <T extends QueryResultRow = any>(
   table: string,
   data: Record<string, any>,
   where: Record<string, any>
@@ -231,7 +231,7 @@ export const update = async <T = any>(
  * const unpaidInvoices = await findBy('invoices', { status: 'unpaid' });
  * const recentPayments = await findBy('payments', {}, { orderBy: 'payment_date DESC', limit: 10 });
  */
-export const findBy = async <T = any>(
+export const findBy = async <T extends QueryResultRow = any>(
   table: string,
   where?: Record<string, any>,
   options?: { limit?: number; offset?: number; orderBy?: string }
@@ -274,7 +274,7 @@ export const findBy = async <T = any>(
  * @example
  * const invoice = await findOne('invoices', { invoice_number: 'INV001' });
  */
-export const findOne = async <T = any>(
+export const findOne = async <T extends QueryResultRow = any>(
   table: string,
   where: Record<string, any>
 ): Promise<T | null> => {
@@ -292,7 +292,7 @@ export const findOne = async <T = any>(
  * @example
  * await deleteBy('matches', { status: 'rejected' });
  */
-export const deleteBy = async <T = any>(
+export const deleteBy = async <T extends QueryResultRow = any>(
   table: string,
   where: Record<string, any>
 ): Promise<T[]> => {

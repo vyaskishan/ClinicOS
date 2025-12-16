@@ -2,6 +2,7 @@ import express, { Application } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
+import uploadRoutes from './api/upload.routes';
 
 // Load environment variables
 dotenv.config();
@@ -20,8 +21,11 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// API Routes
+app.use('/api/upload', uploadRoutes);
+
 // Health check endpoint
-app.get('/health', (req, res) => {
+app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
     service: 'ReconX API',
@@ -30,13 +34,16 @@ app.get('/health', (req, res) => {
 });
 
 // Root endpoint
-app.get('/', (req, res) => {
+app.get('/', (_req, res) => {
   res.json({
     message: 'ReconX API Server',
     version: '0.1.0',
     endpoints: {
       health: '/health',
-      api: '/api/v1'
+      upload: {
+        invoices: 'POST /api/upload/invoices',
+        payments: 'POST /api/upload/payments'
+      }
     }
   });
 });
