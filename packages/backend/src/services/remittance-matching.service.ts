@@ -225,8 +225,12 @@ async function findPaymentForRemittance(
 /**
  * Create invoice-payment matches from remittance line items
  *
- * Links all invoices listed in the remittance to the matched payment.
- * This is "remittance-assisted" matching.
+ * Handles three scenarios:
+ * 1. Bulk Payments: Single payment → multiple invoices (sum matches)
+ * 2. Partial Payments: Payment amount < invoice outstanding
+ * 3. Distributed Payments: One payment split across multiple invoices
+ *
+ * This is "remittance-assisted" matching with intelligent amount distribution.
  */
 async function createInvoiceMatchesFromRemittance(
   client: PoolClient,
@@ -238,10 +242,56 @@ async function createInvoiceMatchesFromRemittance(
   // Parse line items from parsed_content JSONB
   const lineItems = remittance.parsed_content?.line_items || [];
 
+  if (lineItems.length === 0) {
+    console.log(`     ⚠️  No line items found in remittance`);
+    return 0;
+  }
+
+  // Get payment details
+  const paymentResult = await client.query(
+    `SELECT amount, status FROM payments WHERE id = $1`,
+    [paymentId]
+  );
+
+  if (paymentResult.rows.length === 0) {
+    console.log(`     ⚠️  Payment ${paymentId} not found`);
+    return 0;
+  }
+
+  const payment = paymentResult.rows[0];
+  const paymentAmount = payment.amount;
+
+  // Calculate total from line items
+  const lineItemsTotal = lineItems.reduce((sum: number, item: any) => sum + item.amount, 0);
+
+  console.log(`     💰 Payment: $${paymentAmount.toFixed(2)}`);
+  console.log(`     📋 Line items total: $${lineItemsTotal.toFixed(2)} (${lineItems.length} items)`);
+
+  // Determine payment scenario
+  let scenario: 'bulk' | 'partial' | 'distributed' | 'exact';
+
+  if (lineItems.length > 1 && amountsEqual(lineItemsTotal, paymentAmount)) {
+    scenario = 'bulk'; // Bulk: Multiple invoices, sum matches payment
+    console.log(`     📦 Scenario: BULK PAYMENT (One-to-Many)`);
+  } else if (lineItems.length === 1 && lineItems[0].amount < paymentAmount) {
+    scenario = 'partial'; // Partial: Single invoice, payment > amount (rare in remittance)
+    console.log(`     📉 Scenario: PARTIAL PAYMENT (overpayment case)`);
+  } else if (lineItems.length === 1 && lineItems[0].amount > paymentAmount) {
+    scenario = 'partial'; // Partial: Single invoice, payment < amount
+    console.log(`     📉 Scenario: PARTIAL PAYMENT`);
+  } else if (lineItems.length > 1) {
+    scenario = 'distributed'; // Distributed: Multiple invoices, different amounts
+    console.log(`     🔀 Scenario: DISTRIBUTED PAYMENT`);
+  } else {
+    scenario = 'exact'; // Exact: Single invoice, amounts match
+    console.log(`     ✅ Scenario: EXACT MATCH`);
+  }
+
+  // Process each line item
   for (const item of lineItems) {
     // Find invoice by invoice number
     const invoiceResult = await client.query(
-      `SELECT id, outstanding_amount, status FROM invoices WHERE invoice_number = $1`,
+      `SELECT id, amount, outstanding_amount, status FROM invoices WHERE invoice_number = $1`,
       [item.invoice_number]
     );
 
@@ -263,6 +313,19 @@ async function createInvoiceMatchesFromRemittance(
       continue;
     }
 
+    // Determine amount to match
+    // For distributed/bulk, use the specific amount from remittance
+    // For partial, use the lesser of payment amount or outstanding amount
+    let amountToMatch = item.amount;
+
+    // Validate amount doesn't exceed invoice outstanding
+    if (amountToMatch > invoice.outstanding_amount) {
+      console.log(
+        `     ⚠️  Line item amount ($${amountToMatch}) exceeds invoice outstanding ($${invoice.outstanding_amount})`
+      );
+      amountToMatch = invoice.outstanding_amount; // Cap at outstanding
+    }
+
     // Create match record
     const insertMatch = `
       INSERT INTO matches (
@@ -281,8 +344,11 @@ async function createInvoiceMatchesFromRemittance(
 
     const notes = JSON.stringify({
       reason: 'Remittance-assisted match',
+      scenario: scenario,
       line_item: item,
       remittance_file: remittance.file_name,
+      payment_total: paymentAmount,
+      line_items_count: lineItems.length,
     });
 
     await client.query(insertMatch, [
@@ -291,7 +357,7 @@ async function createInvoiceMatchesFromRemittance(
       remittance.id,
       'remittance_assisted',
       90, // High confidence for remittance-assisted matches
-      item.amount,
+      amountToMatch,
       'pending', // Requires review
       'system',
       notes,
@@ -299,28 +365,57 @@ async function createInvoiceMatchesFromRemittance(
 
     matchesCreated++;
 
-    // Update invoice status if amount matches
-    if (amountsEqual(item.amount, invoice.outstanding_amount)) {
+    // Update invoice status based on amount matched
+    const newOutstanding = invoice.outstanding_amount - amountToMatch;
+
+    let newStatus: string;
+    if (newOutstanding <= 0.01) {
+      // Fully paid (within 1 cent tolerance)
+      newStatus = 'fully_paid';
       await client.query(
         `UPDATE invoices
-         SET status = 'fully_paid',
+         SET status = $1,
              outstanding_amount = 0,
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = $1`,
-        [invoice.id]
+         WHERE id = $2`,
+        [newStatus, invoice.id]
       );
-    } else if (item.amount < invoice.outstanding_amount) {
-      const newOutstanding = invoice.outstanding_amount - item.amount;
+      console.log(
+        `     ✓ Invoice ${item.invoice_number}: $${amountToMatch.toFixed(2)} → FULLY PAID`
+      );
+    } else {
+      // Partially paid
+      newStatus = 'partially_paid';
       await client.query(
         `UPDATE invoices
-         SET status = 'partially_paid',
-             outstanding_amount = $1,
+         SET status = $1,
+             outstanding_amount = $2,
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = $2`,
-        [newOutstanding, invoice.id]
+         WHERE id = $3`,
+        [newStatus, newOutstanding, invoice.id]
+      );
+      console.log(
+        `     ✓ Invoice ${item.invoice_number}: $${amountToMatch.toFixed(2)} matched, $${newOutstanding.toFixed(2)} remaining`
       );
     }
   }
+
+  // Update payment status based on scenario
+  let paymentStatus: string;
+  if (scenario === 'bulk' || scenario === 'distributed' || scenario === 'exact') {
+    paymentStatus = 'matched'; // Fully allocated
+  } else {
+    // Check if payment fully allocated
+    const totalMatched = lineItems.reduce((sum: number, item: any) => sum + item.amount, 0);
+    paymentStatus = amountsEqual(totalMatched, paymentAmount) ? 'matched' : 'partially_matched';
+  }
+
+  await client.query(
+    `UPDATE payments SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+    [paymentStatus, paymentId]
+  );
+
+  console.log(`     💳 Payment status updated: ${paymentStatus}`);
 
   return matchesCreated;
 }

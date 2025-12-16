@@ -14,6 +14,7 @@
     "test:matching": "tsx src/scripts/test-matching.ts",
     "test:matching-demo": "tsx src/scripts/test-matching-standalone.ts",
     "test:remittance-demo": "tsx src/scripts/test-remittance-parsing-standalone.ts",
+    "test:bulk-partial": "tsx src/scripts/test-bulk-partial-payments.ts",
     "lint": "eslint src --ext .ts",
     "clean": "rm -rf dist"
   },

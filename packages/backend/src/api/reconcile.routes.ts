@@ -3,6 +3,8 @@ import {
   runDirectMatching,
   DirectMatchOptions,
 } from '../services/direct-matching.service';
+import { matchRemittancesToPayments } from '../services/remittance-matching.service';
+import { getRemittanceById } from '../services/remittance-upload.service';
 
 /**
  * RECONCILIATION API ROUTES
@@ -99,6 +101,153 @@ router.post('/direct', async (req: Request, res: Response) => {
       error: {
         code: 'MATCHING_ERROR',
         message: error.message || 'Failed to run direct matching',
+      },
+    });
+  }
+});
+
+/**
+ * POST /api/reconcile/remittance
+ *
+ * Match a specific remittance to payments and create invoice-payment matches
+ *
+ * This endpoint handles bulk, partial, and distributed payment scenarios:
+ * - Bulk: Single payment → multiple invoices (sum matches)
+ * - Partial: Payment amount < invoice outstanding
+ * - Distributed: One payment split across multiple invoices with different amounts
+ *
+ * Request Body:
+ * {
+ *   "remittance_id": "uuid"
+ * }
+ *
+ * Response:
+ * {
+ *   "success": true,
+ *   "message": "Remittance matched successfully",
+ *   "remittance": {
+ *     "id": "uuid",
+ *     "file_name": "Medicare_Remittance.pdf",
+ *     "payer_name": "Medicare Australia",
+ *     "payment_code": "MCARE2024012001"
+ *   },
+ *   "payment_match": {
+ *     "payment_id": "uuid",
+ *     "match_type": "payment_code_match",
+ *     "confidence": 95,
+ *     "scenario": "bulk"
+ *   },
+ *   "invoice_matches": [
+ *     {
+ *       "invoice_number": "INV-001",
+ *       "amount_matched": 450.00,
+ *       "status": "fully_paid",
+ *       "outstanding": 0.00
+ *     }
+ *   ]
+ * }
+ */
+router.post('/remittance', async (req: Request, res: Response) => {
+  try {
+    const { remittance_id } = req.body;
+
+    // Validate input
+    if (!remittance_id) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'remittance_id is required',
+        },
+      });
+    }
+
+    console.log('📥 Remittance reconciliation request received');
+    console.log(`   Remittance ID: ${remittance_id}`);
+
+    // Check if remittance exists
+    const remittance = await getRemittanceById(remittance_id);
+    if (!remittance) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: 'NOT_FOUND',
+          message: 'Remittance not found',
+        },
+      });
+    }
+
+    // Run remittance matching for this specific remittance
+    const result = await matchRemittancesToPayments({
+      remittance_ids: [remittance_id],
+    });
+
+    if (result.matched_remittances === 0) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: 'NO_MATCH',
+          message: 'No matching payment found for this remittance',
+        },
+      });
+    }
+
+    // Get the match details
+    const paymentMatch = result.matches[0];
+
+    // Fetch created invoice matches
+    const { query: db } = await import('../config/database');
+    const invoiceMatches = await db(
+      `SELECT
+        m.id as match_id,
+        i.invoice_number,
+        m.amount_matched,
+        i.status,
+        i.outstanding_amount,
+        m.notes
+       FROM matches m
+       JOIN invoices i ON i.id = m.invoice_id
+       WHERE m.payment_id = $1
+       ORDER BY m.created_at DESC`,
+      [paymentMatch.payment_id]
+    );
+
+    // Parse scenario from notes
+    const scenario = invoiceMatches.rows[0]?.notes
+      ? JSON.parse(invoiceMatches.rows[0].notes).scenario
+      : 'unknown';
+
+    return res.json({
+      success: true,
+      message: `Remittance matched successfully - ${result.invoice_matches_created} invoice matches created`,
+      remittance: {
+        id: remittance.id,
+        file_name: remittance.file_name,
+        payer_name: remittance.parsed_content?.payer_name,
+        payment_code: remittance.payment_code,
+      },
+      payment_match: {
+        payment_id: paymentMatch.payment_id,
+        match_type: paymentMatch.match_type,
+        confidence: paymentMatch.confidence,
+        scenario: scenario,
+      },
+      invoice_matches: invoiceMatches.rows.map((row: any) => ({
+        match_id: row.match_id,
+        invoice_number: row.invoice_number,
+        amount_matched: parseFloat(row.amount_matched),
+        status: row.status,
+        outstanding: parseFloat(row.outstanding_amount),
+      })),
+    });
+  } catch (error: any) {
+    console.error('Error reconciling remittance:', error);
+
+    return res.status(500).json({
+      success: false,
+      error: {
+        code: 'RECONCILIATION_ERROR',
+        message: error.message || 'Failed to reconcile remittance',
       },
     });
   }
