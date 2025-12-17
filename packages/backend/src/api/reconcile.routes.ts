@@ -5,6 +5,7 @@ import {
 } from '../services/direct-matching.service';
 import { matchRemittancesToPayments } from '../services/remittance-matching.service';
 import { getRemittanceById } from '../services/remittance-upload.service';
+import { runFuzzyMatching, FuzzyMatchOptions } from '../services/fuzzy-matching.service';
 
 /**
  * RECONCILIATION API ROUTES
@@ -13,6 +14,9 @@ import { getRemittanceById } from '../services/remittance-upload.service';
  *
  * Endpoints:
  * - POST /api/reconcile/direct - Run Level 1: Direct/Exact Matching
+ * - POST /api/reconcile/remittance - Match remittance to payment and create invoice matches
+ * - POST /api/reconcile/fuzzy - Run Level 3: Fuzzy Matching (multi-factor scoring)
+ * - GET /api/reconcile/stats - Get reconciliation statistics
  */
 
 const router = Router();
@@ -248,6 +252,104 @@ router.post('/remittance', async (req: Request, res: Response) => {
       error: {
         code: 'RECONCILIATION_ERROR',
         message: error.message || 'Failed to reconcile remittance',
+      },
+    });
+  }
+});
+
+/**
+ * POST /api/reconcile/fuzzy
+ *
+ * Run Level 3: Fuzzy Matching algorithm
+ *
+ * Uses multi-factor scoring to match unmatched payments to invoices:
+ * - Payer Name Similarity (40% weight) - token_sort_ratio matching
+ * - Amount Similarity (30% weight) - dynamic tolerance
+ * - Date Proximity (20% weight) - tiered scoring
+ * - Payer Alias Check (10% weight) - bonus for alias matches
+ *
+ * Request Body:
+ * {
+ *   "min_confidence": 70,           // Minimum score to create match (default: 70)
+ *   "auto_confirm_threshold": 85,   // Score for auto-confirmation (default: 85)
+ *   "payment_ids": ["uuid1"],       // Optional: specific payments
+ *   "invoice_ids": ["uuid2"]        // Optional: specific invoices
+ * }
+ *
+ * Response:
+ * {
+ *   "success": true,
+ *   "summary": {
+ *     "total_matches": 15,
+ *     "pending_review": 8,
+ *     "auto_confirmed": 7,
+ *     "score_distribution": {
+ *       "70-75": 3,
+ *       "75-80": 2,
+ *       "80-85": 3,
+ *       "85-90": 4,
+ *       "90-95": 2,
+ *       "95-100": 1
+ *     }
+ *   },
+ *   "matches": [
+ *     {
+ *       "match_id": "uuid",
+ *       "payment_id": "uuid",
+ *       "invoice_id": "uuid",
+ *       "confidence": 87.5,
+ *       "status": "confirmed",
+ *       "scoring_details": {
+ *         "name_similarity": 92,
+ *         "amount_difference": 2.50,
+ *         "date_difference_days": 5,
+ *         "alias_matched": false,
+ *         "component_scores": {
+ *           "name": 36.8,
+ *           "amount": 30,
+ *           "date": 15,
+ *           "alias": 0
+ *         },
+ *         "total_score": 87.5
+ *       }
+ *     }
+ *   ]
+ * }
+ */
+router.post('/fuzzy', async (req: Request, res: Response) => {
+  try {
+    const options: FuzzyMatchOptions = {
+      min_confidence: req.body.min_confidence || 70,
+      auto_confirm_threshold: req.body.auto_confirm_threshold || 85,
+      payment_ids: req.body.payment_ids,
+      invoice_ids: req.body.invoice_ids,
+    };
+
+    console.log('📥 Fuzzy matching request received');
+    console.log(`   Options:`, options);
+
+    // Run fuzzy matching algorithm
+    const result = await runFuzzyMatching(options);
+
+    return res.json({
+      success: true,
+      message: `Fuzzy matching completed: ${result.total_matches} matches found`,
+      summary: {
+        total_matches: result.total_matches,
+        pending_review: result.pending_review,
+        auto_confirmed: result.auto_confirmed,
+        score_distribution: result.score_distribution,
+      },
+      matches: result.matches,
+    });
+  } catch (error: any) {
+    console.error('Error running fuzzy matching:', error);
+
+    return res.status(500).json({
+      success: false,
+      error: {
+        code: 'FUZZY_MATCHING_ERROR',
+        message: error.message || 'Failed to run fuzzy matching',
       },
     });
   }
