@@ -9,21 +9,29 @@ import {
   hasTransactionIdMatch,
   hasEmailDomainMatch,
 } from '../utils/text-extraction.utils';
+import { getBestPatternBoost, recordPatternUsage } from './pattern-learning.service';
 
 /**
- * LEVEL 3: FUZZY MATCHING SERVICE
+ * LEVEL 3: FUZZY MATCHING SERVICE (with Machine Learning Pattern Boost)
  *
- * Purpose: Match unmatched payments to invoices using multi-factor fuzzy matching algorithm.
+ * Purpose: Match unmatched payments to invoices using multi-factor fuzzy matching algorithm
+ * with machine learning pattern boost from user-confirmed matches.
  *
  * Scoring Components:
- * 1. Payer Name Similarity (40%) - token_sort_ratio matching
+ * 1. Name/Field Similarity (35%) - multi-field matching (payer, patient, email, transaction ID)
  * 2. Amount Similarity (30%) - dynamic tolerance based on amount
  * 3. Date Proximity (20%) - tiered scoring by days difference
- * 4. Payer Alias Check (10%) - bonus for alias matches
+ * 4. Pattern Boost (10%) - learned patterns from manual matches
+ * 5. Payer Alias Check (5%) - bonus for alias matches
  *
  * Composite Score: 70%+ creates match
  * - 70-85%: pending (manual review required)
  * - >85%: can be auto-confirmed
+ *
+ * Pattern Learning:
+ * - When users manually match payments, system learns patterns
+ * - Patterns are applied in future fuzzy matching to boost scores
+ * - Pattern effectiveness tracked via success_rate
  */
 
 export interface FuzzyMatchOptions {
@@ -61,7 +69,13 @@ export interface FuzzyMatchResult {
       name: number;
       amount: number;
       date: number;
+      pattern: number;
       alias: number;
+    };
+    pattern_used: {
+      pattern_id: string | null;
+      pattern_boost: number;
+      pattern_match_score: number;
     };
     total_score: number;
   };
@@ -258,7 +272,7 @@ async function findFuzzyCandidates(
 }
 
 /**
- * Calculate fuzzy score for payment-invoice pair with multi-field matching
+ * Calculate fuzzy score for payment-invoice pair with multi-field matching and pattern boost
  */
 async function calculateFuzzyScore(
   client: PoolClient,
@@ -280,7 +294,13 @@ async function calculateFuzzyScore(
     name: number;
     amount: number;
     date: number;
+    pattern: number;
     alias: number;
+  };
+  pattern_used: {
+    pattern_id: string | null;
+    pattern_boost: number;
+    pattern_match_score: number;
   };
   total_score: number;
 }> {
@@ -345,8 +365,8 @@ async function calculateFuzzyScore(
     bestFieldMatched = 'payer_name';
   }
 
-  // Apply bonuses for exact matches
-  let nameScore = (nameSimilarity / 100) * 40;
+  // Calculate base name score (35% weight in new formula)
+  let nameScore = (nameSimilarity / 100) * 35;
 
   if (emailDomainMatch) {
     nameScore += 5; // +5 bonus for email domain match
@@ -358,8 +378,8 @@ async function calculateFuzzyScore(
     bestFieldMatched = 'transaction_id';
   }
 
-  // Cap at 50 (allow overscoring from bonuses)
-  nameScore = Math.min(nameScore, 50);
+  // Cap at 45 (35 base + 10 transaction bonus)
+  nameScore = Math.min(nameScore, 45);
 
   // 2. Amount Similarity (30% weight)
   const paymentAmount = parseFloat(payment.amount);
@@ -400,16 +420,28 @@ async function calculateFuzzyScore(
     datePoints = 0;
   }
 
-  // 4. Payer Alias Check (10% weight)
+  // 4. Pattern Boost (10% weight)
+  // Get learned pattern boost for this payment-invoice pair
+  const patternResult = await getBestPatternBoost(
+    client,
+    payment.description || '',
+    invoice.payee_name || ''
+  );
+
+  // Scale pattern boost to max 10 points (10% weight)
+  const patternScore = Math.min(patternResult.boost, 10);
+
+  // 5. Payer Alias Check (5% weight)
   const aliasMatched = await checkPayerAlias(
     client,
     payment.description,
     invoice.payee_name
   );
-  const aliasScore = aliasMatched ? 10 : 0;
+  const aliasScore = aliasMatched ? 5 : 0;
 
-  // Composite Score
-  const totalScore = nameScore + amountScore + datePoints + aliasScore;
+  // Composite Score (updated formula with pattern learning)
+  // Formula: (name × 0.35) + (amount × 0.30) + (date × 0.20) + (pattern × 0.10) + (alias × 0.05)
+  const totalScore = nameScore + amountScore + datePoints + patternScore + aliasScore;
 
   return {
     name_similarity: nameSimilarity,
@@ -427,7 +459,13 @@ async function calculateFuzzyScore(
       name: parseFloat(nameScore.toFixed(2)),
       amount: amountScore,
       date: datePoints,
+      pattern: parseFloat(patternScore.toFixed(2)),
       alias: aliasScore,
+    },
+    pattern_used: {
+      pattern_id: patternResult.patternId,
+      pattern_boost: parseFloat(patternResult.boost.toFixed(2)),
+      pattern_match_score: parseFloat(patternResult.matchScore.toFixed(2)),
     },
     total_score: parseFloat(totalScore.toFixed(2)),
   };
@@ -500,6 +538,18 @@ async function createFuzzyMatch(
       }),
     ]
   );
+
+  // Record pattern usage if a pattern was used
+  if (match.scoring_details.pattern_used.pattern_id) {
+    try {
+      await recordPatternUsage(client, match.scoring_details.pattern_used.pattern_id);
+      console.log(
+        `🧠 Recorded pattern usage: ${match.scoring_details.pattern_used.pattern_id} (boost: ${match.scoring_details.pattern_used.pattern_boost})`
+      );
+    } catch (error) {
+      console.error('⚠️ Failed to record pattern usage (non-critical):', error);
+    }
+  }
 
   // Update payment status
   await client.query(

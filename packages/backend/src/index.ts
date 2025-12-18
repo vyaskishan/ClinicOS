@@ -5,6 +5,8 @@ import dotenv from 'dotenv';
 import uploadRoutes from './api/upload.routes';
 import reconcileRoutes from './api/reconcile.routes';
 import remittanceRoutes from './api/remittance.routes';
+import matchesRoutes from './api/matches.routes';
+import patternsRoutes from './api/patterns.routes';
 
 // Load environment variables
 dotenv.config();
@@ -27,6 +29,8 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api/upload', uploadRoutes);
 app.use('/api/reconcile', reconcileRoutes);
 app.use('/api/remittances', remittanceRoutes);
+app.use('/api/matches', matchesRoutes);
+app.use('/api/patterns', patternsRoutes);
 
 // Health check endpoint
 app.get('/health', (_req, res) => {
@@ -57,6 +61,18 @@ app.get('/', (_req, res) => {
         match: 'POST /api/remittances/match',
         list: 'GET /api/remittances',
         get: 'GET /api/remittances/:id'
+      },
+      matches: {
+        createManual: 'POST /api/matches/manual',
+        confirm: 'PUT /api/matches/:id/confirm',
+        reject: 'PUT /api/matches/:id/reject',
+        list: 'GET /api/matches'
+      },
+      patterns: {
+        list: 'GET /api/patterns',
+        update: 'PUT /api/patterns/:id',
+        delete: 'DELETE /api/patterns/:id',
+        suggestions: 'GET /api/patterns/suggestions?payment_id=:id'
       }
     }
   });

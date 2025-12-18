@@ -17,6 +17,7 @@
     "test:bulk-partial": "tsx src/scripts/test-bulk-partial-payments.ts",
     "test:fuzzy-demo": "tsx src/scripts/test-fuzzy-matching-demo.ts",
     "test:enhanced-demo": "tsx src/scripts/test-enhanced-matching-demo.ts",
+    "test:pattern-demo": "tsx src/scripts/test-pattern-learning-demo.ts",
     "lint": "eslint src --ext .ts",
     "clean": "rm -rf dist"
   },
