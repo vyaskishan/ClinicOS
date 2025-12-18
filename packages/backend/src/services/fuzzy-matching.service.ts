@@ -1,6 +1,14 @@
 import { PoolClient } from 'pg';
 import { transaction } from '../config/database';
 import * as fuzzball from 'fuzzball';
+import {
+  extractAllData,
+  extractEmailDomains,
+  extractTransactionIds,
+  extractPersonNames,
+  hasTransactionIdMatch,
+  hasEmailDomainMatch,
+} from '../utils/text-extraction.utils';
 
 /**
  * LEVEL 3: FUZZY MATCHING SERVICE
@@ -42,6 +50,13 @@ export interface FuzzyMatchResult {
     amount_difference: number;
     date_difference_days: number;
     alias_matched: boolean;
+    multi_field_matches: {
+      payer_name_match: number;
+      patient_name_match: number;
+      email_domain_match: boolean;
+      transaction_id_match: boolean;
+      best_field_matched: string;
+    };
     component_scores: {
       name: number;
       amount: number;
@@ -243,7 +258,7 @@ async function findFuzzyCandidates(
 }
 
 /**
- * Calculate fuzzy score for payment-invoice pair
+ * Calculate fuzzy score for payment-invoice pair with multi-field matching
  */
 async function calculateFuzzyScore(
   client: PoolClient,
@@ -254,6 +269,13 @@ async function calculateFuzzyScore(
   amount_difference: number;
   date_difference_days: number;
   alias_matched: boolean;
+  multi_field_matches: {
+    payer_name_match: number;
+    patient_name_match: number;
+    email_domain_match: boolean;
+    transaction_id_match: boolean;
+    best_field_matched: string;
+  };
   component_scores: {
     name: number;
     amount: number;
@@ -262,12 +284,82 @@ async function calculateFuzzyScore(
   };
   total_score: number;
 }> {
-  // 1. Payer Name Similarity (40% weight)
-  const nameSimilarity = fuzzball.token_sort_ratio(
+  // Extract structured data from payment description
+  const paymentData = extractAllData(payment.description || '');
+
+  // Extract email domains from invoice fields (if present in payee_name or patient email)
+  const invoiceEmailDomains = extractEmailDomains(
+    `${invoice.payee_name || ''} ${invoice.patient_email || ''}`
+  );
+
+  // Extract transaction IDs from invoice reference fields
+  const invoiceTransactionIds = extractTransactionIds(
+    `${invoice.invoice_number || ''} ${invoice.reference || ''}`
+  );
+
+  // Extract patient names from invoice
+  const invoicePatientNames = invoice.patient_name
+    ? [invoice.patient_name]
+    : extractPersonNames(invoice.notes || '');
+
+  // 1. Multi-Field Name Matching (40% weight)
+  // Try matching against multiple fields and use the BEST match
+
+  // 1a. Payer name match (payment description vs invoice payee_name)
+  const payerSimilarity = fuzzball.token_sort_ratio(
     payment.description || '',
     invoice.payee_name || ''
   );
-  const nameScore = (nameSimilarity / 100) * 40;
+
+  // 1b. Patient name match (extract names from payment description vs invoice patient_name)
+  let patientSimilarity = 0;
+  if (paymentData.person_names.length > 0 && invoicePatientNames.length > 0) {
+    // Compare all extracted patient names
+    const similarities: number[] = [];
+    paymentData.person_names.forEach((paymentName) => {
+      invoicePatientNames.forEach((invoiceName) => {
+        similarities.push(fuzzball.token_sort_ratio(paymentName, invoiceName));
+      });
+    });
+    patientSimilarity = Math.max(...similarities, 0);
+  }
+
+  // 1c. Email domain match (exact match gives bonus)
+  const emailDomainMatch = hasEmailDomainMatch(
+    paymentData.email_domains,
+    invoiceEmailDomains
+  );
+
+  // 1d. Transaction ID match (exact match gives highest bonus)
+  const transactionIdMatch = hasTransactionIdMatch(
+    paymentData.transaction_ids,
+    invoiceTransactionIds
+  );
+
+  // Use the BEST matching field
+  const nameSimilarity = Math.max(payerSimilarity, patientSimilarity);
+  let bestFieldMatched = '';
+  if (patientSimilarity > payerSimilarity) {
+    bestFieldMatched = 'patient_name';
+  } else if (payerSimilarity > 0) {
+    bestFieldMatched = 'payer_name';
+  }
+
+  // Apply bonuses for exact matches
+  let nameScore = (nameSimilarity / 100) * 40;
+
+  if (emailDomainMatch) {
+    nameScore += 5; // +5 bonus for email domain match
+    bestFieldMatched = bestFieldMatched || 'email_domain';
+  }
+
+  if (transactionIdMatch) {
+    nameScore += 10; // +10 bonus for transaction ID match
+    bestFieldMatched = 'transaction_id';
+  }
+
+  // Cap at 50 (allow overscoring from bonuses)
+  nameScore = Math.min(nameScore, 50);
 
   // 2. Amount Similarity (30% weight)
   const paymentAmount = parseFloat(payment.amount);
@@ -324,6 +416,13 @@ async function calculateFuzzyScore(
     amount_difference: amountDifference,
     date_difference_days: dateDiff,
     alias_matched: aliasMatched,
+    multi_field_matches: {
+      payer_name_match: payerSimilarity,
+      patient_name_match: patientSimilarity,
+      email_domain_match: emailDomainMatch,
+      transaction_id_match: transactionIdMatch,
+      best_field_matched: bestFieldMatched || 'none',
+    },
     component_scores: {
       name: parseFloat(nameScore.toFixed(2)),
       amount: amountScore,

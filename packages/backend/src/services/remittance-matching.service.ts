@@ -1,6 +1,13 @@
 import { PoolClient } from 'pg';
 import { transaction } from '../config/database';
 import { amountsEqual, fuzzyNameMatch } from '../utils/matching.utils';
+import {
+  extractEmailDomains,
+  extractTransactionIds,
+  extractPersonNames,
+  hasEmailDomainMatch,
+  hasTransactionIdMatch,
+} from '../utils/text-extraction.utils';
 
 /**
  * REMITTANCE-PAYMENT MATCHING SERVICE
@@ -19,14 +26,17 @@ import { amountsEqual, fuzzyNameMatch } from '../utils/matching.utils';
 export interface RemittanceMatchResult {
   remittance_id: string;
   payment_id: string;
-  match_type: 'payment_code_match' | 'date_amount_payer' | 'amount_payer';
+  match_type: 'payment_code_match' | 'email_domain_match' | 'date_amount_payer' | 'amount_payer';
   confidence: number;
   matched_by: string[];
   details: {
     payment_code_match?: boolean;
+    email_domain_match?: boolean;
+    matched_domain?: string;
     date_difference_days?: number;
     amount_difference?: number;
     payer_similarity?: number;
+    patient_similarity?: number;
   };
 }
 
@@ -123,11 +133,18 @@ async function findPaymentForRemittance(
   remittance: any,
   payments: any[]
 ): Promise<RemittanceMatchResult | null> {
-  // PRIORITY 1: Payment Code Match (95% confidence)
+  // PRIORITY 1: Payment Code / Transaction ID Match (95% confidence)
   if (remittance.payment_code) {
     for (const payment of payments) {
-      // Check if payment description contains the payment code
-      if (payment.description.includes(remittance.payment_code)) {
+      // Extract transaction IDs from payment description
+      const paymentTransactionIds = extractTransactionIds(payment.description);
+
+      // Check if payment description contains the payment code OR has matching transaction ID
+      const hasCodeMatch =
+        payment.description.includes(remittance.payment_code) ||
+        hasTransactionIdMatch([remittance.payment_code], paymentTransactionIds);
+
+      if (hasCodeMatch) {
         // Validate: amount matches (within $1)
         if (
           remittance.total_amount &&
@@ -152,9 +169,55 @@ async function findPaymentForRemittance(
     }
   }
 
-  // PRIORITY 2: Date + Amount + Payer (85% confidence)
+  // PRIORITY 1b: Email Domain Match (90% confidence)
+  // If remittance has email info and payment description has matching domain
+  const remittanceEmailDomains = extractEmailDomains(
+    `${remittance.payer_name || ''} ${remittance.file_name || ''}`
+  );
+
+  if (remittanceEmailDomains.length > 0) {
+    for (const payment of payments) {
+      const paymentEmailDomains = extractEmailDomains(payment.description);
+
+      if (hasEmailDomainMatch(remittanceEmailDomains, paymentEmailDomains)) {
+        // Validate: amount matches (within $1)
+        if (
+          remittance.total_amount &&
+          Math.abs(payment.amount - remittance.total_amount) <= 1.0
+        ) {
+          // Mark payment as matched
+          await updatePaymentStatus(client, payment.id, 'matched');
+
+          return {
+            remittance_id: remittance.id,
+            payment_id: payment.id,
+            match_type: 'email_domain_match',
+            confidence: 90,
+            matched_by: ['email_domain', 'amount'],
+            details: {
+              email_domain_match: true,
+              matched_domain: remittanceEmailDomains[0],
+              amount_difference: Math.abs(payment.amount - remittance.total_amount),
+            },
+          };
+        }
+      }
+    }
+  }
+
+  // PRIORITY 2: Date + Amount + Payer/Patient (85% confidence)
   if (remittance.remittance_date && remittance.total_amount && remittance.payer_name) {
     const remittanceDate = new Date(remittance.remittance_date);
+
+    // Extract patient names from remittance line items
+    const remittancePatientNames: string[] = [];
+    if (remittance.parsed_content?.line_items) {
+      remittance.parsed_content.line_items.forEach((item: any) => {
+        if (item.patient_name) {
+          remittancePatientNames.push(item.patient_name);
+        }
+      });
+    }
 
     for (const payment of payments) {
       const paymentDate = new Date(payment.payment_date);
@@ -169,20 +232,40 @@ async function findPaymentForRemittance(
           // Check payer name match (fuzzy >80%)
           const payerSimilarity = fuzzyNameMatch(payment.description, remittance.payer_name);
 
-          if (payerSimilarity >= 80) {
+          // Also check patient name match if available
+          let patientSimilarity = 0;
+          if (remittancePatientNames.length > 0) {
+            const paymentPersonNames = extractPersonNames(payment.description);
+            remittancePatientNames.forEach((remitName) => {
+              paymentPersonNames.forEach((payName) => {
+                const similarity = fuzzyNameMatch(payName, remitName);
+                patientSimilarity = Math.max(patientSimilarity, similarity);
+              });
+            });
+          }
+
+          // Match if payer OR patient similarity is >80%
+          const bestSimilarity = Math.max(payerSimilarity, patientSimilarity);
+
+          if (bestSimilarity >= 80) {
             // Mark payment as matched
             await updatePaymentStatus(client, payment.id, 'matched');
+
+            const matchedBy = ['date', 'amount'];
+            if (payerSimilarity >= 80) matchedBy.push('payer');
+            if (patientSimilarity >= 80) matchedBy.push('patient');
 
             return {
               remittance_id: remittance.id,
               payment_id: payment.id,
               match_type: 'date_amount_payer',
               confidence: 85,
-              matched_by: ['date', 'amount', 'payer'],
+              matched_by: matchedBy,
               details: {
                 date_difference_days: Math.round(daysDifference),
                 amount_difference: Math.abs(payment.amount - remittance.total_amount),
                 payer_similarity: payerSimilarity,
+                patient_similarity: patientSimilarity,
               },
             };
           }
