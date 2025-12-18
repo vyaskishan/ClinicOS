@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ReconX Dashboard - Layout Preview</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background-color: #fafafa;
+        }
+
+        /* Header */
+        .app-bar {
+            background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+            color: white;
+            padding: 16px 24px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .app-bar h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+
+        /* Container */
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 32px 24px;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 24px;
+            margin-bottom: 32px;
+        }
+
+        .stat-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            transition: transform 0.2s, box-shadow 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .stat-content h3 {
+            font-size: 0.875rem;
+            color: #666;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+
+        .stat-content .value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #212121;
+            margin-top: 8px;
+        }
+
+        .stat-icon {
+            width: 56px;
+            height: 56px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+        }
+
+        /* Section */
+        .section {
+            background: white;
+            border-radius: 8px;
+            padding: 24px;
+            margin-bottom: 32px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .section-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 24px;
+            color: #212121;
+        }
+
+        /* Upload Grid */
+        .upload-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
+        }
+
+        .upload-zone {
+            border: 2px dashed #e0e0e0;
+            border-radius: 8px;
+            padding: 32px 24px;
+            text-align: center;
+            transition: all 0.2s;
+            cursor: pointer;
+            background: #fafafa;
+        }
+
+        .upload-zone:hover {
+            border-color: #1976d2;
+            background: #f5f5f5;
+        }
+
+        .upload-zone .icon {
+            font-size: 3rem;
+            color: #9e9e9e;
+            margin-bottom: 16px;
+        }
+
+        .upload-zone h4 {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: #212121;
+        }
+
+        .upload-zone p {
+            color: #666;
+            font-size: 0.875rem;
+            margin-bottom: 8px;
+        }
+
+        .upload-zone .file-type {
+            font-size: 0.75rem;
+            color: #999;
+        }
+
+        /* Actions */
+        .actions {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 12px 32px;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #1976d2;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #1565c0;
+            box-shadow: 0 4px 8px rgba(25, 118, 210, 0.3);
+        }
+
+        .btn-outlined {
+            background: transparent;
+            color: #1976d2;
+            border: 2px solid #1976d2;
+        }
+
+        .btn-outlined:hover {
+            background: #e3f2fd;
+        }
+
+        /* Activity Feed */
+        .activity-feed {
+            background: white;
+            border-radius: 8px;
+            padding: 24px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .activity-item {
+            padding: 16px 0;
+            border-bottom: 1px solid #eeeeee;
+            display: flex;
+            align-items: flex-start;
+            gap: 16px;
+        }
+
+        .activity-item:last-child {
+            border-bottom: none;
+        }
+
+        .activity-icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+            flex-shrink: 0;
+        }
+
+        .activity-content h4 {
+            font-size: 0.875rem;
+            font-weight: 500;
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .activity-content p {
+            font-size: 0.75rem;
+            color: #666;
+            line-height: 1.4;
+        }
+
+        .status-chip {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+
+        .status-success {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .status-running {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+
+        .matches-found {
+            color: #2e7d32;
+            font-weight: 500;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .upload-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .container {
+                padding: 16px;
+            }
+        }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #999;
+        }
+
+        .empty-state p {
+            margin-top: 8px;
+            font-size: 0.875rem;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="app-bar">
+        <h1>ReconX - Invoice Reconciliation</h1>
+    </div>
+
+    <!-- Main Container -->
+    <div class="container">
+
+        <!-- Summary Statistics -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-content">
+                    <h3>Invoices Uploaded</h3>
+                    <div class="value">1,247</div>
+                </div>
+                <div class="stat-icon" style="background: #e3f2fd; color: #1976d2;">
+                    📄
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-content">
+                    <h3>Payments Uploaded</h3>
+                    <div class="value">1,189</div>
+                </div>
+                <div class="stat-icon" style="background: #f3e5f5; color: #9c27b0;">
+                    💳
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-content">
+                    <h3>Matched Transactions</h3>
+                    <div class="value">1,156</div>
+                </div>
+                <div class="stat-icon" style="background: #e8f5e9; color: #2e7d32;">
+                    ✓
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-content">
+                    <h3>Unmatched Transactions</h3>
+                    <div class="value">91</div>
+                </div>
+                <div class="stat-icon" style="background: #ffebee; color: #d32f2f;">
+                    ✗
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-content">
+                    <h3>Total Reconciled</h3>
+                    <div class="value">$2.4M</div>
+                </div>
+                <div class="stat-icon" style="background: #fff3e0; color: #ed6c02;">
+                    💰
+                </div>
+            </div>
+        </div>
+
+        <!-- Upload Section -->
+        <div class="section">
+            <h2 class="section-title">Upload Files</h2>
+            <div class="upload-grid">
+                <div class="upload-zone">
+                    <div class="icon">☁️</div>
+                    <h4>Invoices CSV</h4>
+                    <p>Drag & drop file here</p>
+                    <p>or click to browse</p>
+                    <p class="file-type">Accepts: CSV (max 1 file)</p>
+                </div>
+
+                <div class="upload-zone">
+                    <div class="icon">☁️</div>
+                    <h4>Bank Feed CSV</h4>
+                    <p>Drag & drop file here</p>
+                    <p>or click to browse</p>
+                    <p class="file-type">Accepts: CSV (max 1 file)</p>
+                </div>
+
+                <div class="upload-zone">
+                    <div class="icon">☁️</div>
+                    <h4>Remittance PDFs</h4>
+                    <p>Drag & drop files here</p>
+                    <p>or click to browse</p>
+                    <p class="file-type">Accepts: PDF (max 10 files)</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Actions Section -->
+        <div class="section">
+            <h2 class="section-title">Actions</h2>
+            <div class="actions">
+                <button class="btn btn-primary">
+                    <span>▶</span>
+                    Run Reconciliation
+                </button>
+                <button class="btn btn-outlined">
+                    <span>👁</span>
+                    View Results
+                </button>
+            </div>
+        </div>
+
+        <!-- Recent Activity -->
+        <div class="activity-feed">
+            <h2 class="section-title">Recent Activity</h2>
+
+            <div class="activity-item">
+                <div class="activity-icon" style="background: #e8f5e9; color: #2e7d32;">
+                    ✓
+                </div>
+                <div class="activity-content">
+                    <h4>
+                        Reconciliation Run
+                        <span class="status-chip status-success">completed</span>
+                    </h4>
+                    <p>2 hours ago</p>
+                    <p>Files: 1 invoices, 1 payments, 3 remittances</p>
+                    <p class="matches-found">156 matches found</p>
+                </div>
+            </div>
+
+            <div class="activity-item">
+                <div class="activity-icon" style="background: #e3f2fd; color: #1976d2;">
+                    ⟳
+                </div>
+                <div class="activity-content">
+                    <h4>
+                        Reconciliation Run
+                        <span class="status-chip status-running">running</span>
+                    </h4>
+                    <p>5 hours ago</p>
+                    <p>Files: 1 invoices, 1 payments, 2 remittances</p>
+                    <p class="matches-found">142 matches found</p>
+                </div>
+            </div>
+
+            <div class="activity-item">
+                <div class="activity-icon" style="background: #e8f5e9; color: #2e7d32;">
+                    ✓
+                </div>
+                <div class="activity-content">
+                    <h4>
+                        Reconciliation Run
+                        <span class="status-chip status-success">completed</span>
+                    </h4>
+                    <p>1 day ago</p>
+                    <p>Files: 1 invoices, 1 payments, 5 remittances</p>
+                    <p class="matches-found">203 matches found</p>
+                </div>
+            </div>
+
+            <div class="activity-item">
+                <div class="activity-icon" style="background: #e8f5e9; color: #2e7d32;">
+                    ✓
+                </div>
+                <div class="activity-content">
+                    <h4>
+                        Reconciliation Run
+                        <span class="status-chip status-success">completed</span>
+                    </h4>
+                    <p>2 days ago</p>
+                    <p>Files: 1 invoices, 1 payments, 1 remittances</p>
+                    <p class="matches-found">189 matches found</p>
+                </div>
+            </div>
+
+            <div class="activity-item">
+                <div class="activity-icon" style="background: #e8f5e9; color: #2e7d32;">
+                    ✓
+                </div>
+                <div class="activity-content">
+                    <h4>
+                        Reconciliation Run
+                        <span class="status-chip status-success">completed</span>
+                    </h4>
+                    <p>3 days ago</p>
+                    <p>Files: 1 invoices, 1 payments, 4 remittances</p>
+                    <p class="matches-found">167 matches found</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Add some interactivity
+        document.querySelectorAll('.upload-zone').forEach(zone => {
+            zone.addEventListener('click', () => {
+                alert('In the real app, this would open a file picker!');
+            });
+        });
+
+        document.querySelector('.btn-primary').addEventListener('click', () => {
+            alert('In the real app, this would start the reconciliation process with a progress modal showing:\n\n1. Running direct matching...\n2. Processing remittances...\n3. Applying fuzzy matching...');
+        });
+
+        document.querySelector('.btn-outlined').addEventListener('click', () => {
+            alert('In the real app, this would navigate to the results page!');
+        });
+    </script>
+</body>
+</html>
